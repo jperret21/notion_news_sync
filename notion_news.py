@@ -138,10 +138,10 @@ def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
     return articles
 
 def add_to_notion(article: Dict, is_top: bool = False):
-    """Add article to Notion with basic properties."""
+    """Add article to Notion with all properties."""
     stars = {5: "🔥🔥🔥🔥🔥", 4: "⭐⭐⭐⭐", 3: "⭐⭐⭐", 2: "⭐⭐", 1: "⭐"}[article['score']]
     
-    # ⭐ Add trophy emoji to title if TOP 5
+    # Add trophy to title for TOP 5
     title_text = f"🏆 {article['title']}" if is_top else article['title']
     
     try:
@@ -151,22 +151,19 @@ def add_to_notion(article: Dict, is_top: bool = False):
                 "Title": {"title": [{"text": {"content": title_text}}]},
                 "URL": {"url": article['link']},
                 "Date": {"date": {"start": article['date'].isoformat()}},
+                "Source": {"rich_text": [{"text": {"content": article['category']}}]},
+                "PDF": {"url": article['pdf']},
+                "Keywords": {"rich_text": [{"text": {"content": ', '.join(article['keywords'][:5]) if article['keywords'] else 'None'}}]},
+                "Authors": {"rich_text": [{"text": {"content": article['authors']}}]},
+                "Relevance": {"select": {"name": stars}},
             },
             children=[
                 {"object": "block", "type": "callout", "callout": {
                     "icon": {"emoji": "🏆" if is_top else "📚"},
-                    "rich_text": [{"text": {"content": f"Priority: {'TOP 5 - READ FIRST!' if is_top else 'Reading List'} | Relevance: {stars}"}}]
+                    "rich_text": [{"text": {"content": f"{'TOP 5 - READ FIRST!' if is_top else 'Reading List'} | Score: {article['score']}/5"}}]
                 }},
                 {"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"text": {"content": "Abstract"}}]}},
                 {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": article['abstract']}}]}},
-                {"object": "block", "type": "divider", "divider": {}},
-                {"object": "block", "type": "heading_3", "heading_3": {"rich_text": [{"text": {"content": "Details"}}]}},
-                {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [
-                    {"text": {"content": f"📄 PDF: {article['pdf']}\n"}},
-                    {"text": {"content": f"👥 Authors: {article['authors']}\n"}},
-                    {"text": {"content": f"📂 Category: {article['category']}\n"}},
-                    {"text": {"content": f"🔑 Keywords: {', '.join(article['keywords']) if article['keywords'] else 'None'}"}}
-                ]}}
             ]
         )
         return True
