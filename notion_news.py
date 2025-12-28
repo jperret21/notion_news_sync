@@ -134,7 +134,8 @@ def add_entry(entry):
                 "Title": {"title": [{"text": {"content": entry['title']}}]},
                 "URL": {"url": entry['link']},
                 "Date": {"date": {"start": entry['published'].isoformat()}},
-                "Source": {"select": {"name": SOURCE}},
+                "Source": {"rich_text": [{"text": {"content": SOURCE}}]},
+,
             },
         )
         print(f"  ✅ Added: {entry['title'][:80]}...")
