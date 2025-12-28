@@ -14,152 +14,154 @@ import time
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DATABASE_ID = os.environ["DATABASE_ID"]
 
-# Load config
 try:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
 except:
     config = {
         'keywords': {
-            'high_priority': ['gravitational', 'black hole', 'neutron star'],
-            'medium_priority': ['cosmology', 'relativity'],
-            'low_priority': []
+            'high_priority': ['gravitational', 'black hole', 'neutron star', 'LIGO', 'merger'],
+            'medium_priority': ['cosmology', 'relativity', 'dark matter', 'spacetime'],
+            'low_priority': ['numerical', 'metric']
         },
-        'arxiv_categories': ['gr-qc'],
-        'max_articles': 10,
-        'min_relevance': 0  # 0 = accept all
+        'arxiv_categories': ['gr-qc', 'astro-ph.CO'],
+        'days_lookback': 7,
+        'max_articles': 20,  # Keep last 20 articles
+        'top_n': 5  # Mark top 5 as priority
     }
 
 notion = Client(auth=NOTION_TOKEN)
 
 # =====================
-# Core Functions
+# Functions
 # =====================
 
 def calculate_relevance(title: str, abstract: str) -> tuple:
-    """Score article 1-5 stars based on keywords."""
+    """Score 1-5 based on keywords."""
     text = (title + " " + abstract).lower()
     keywords = []
-    score = 0
+    score = 1  # Default
     
     for kw in config['keywords'].get('high_priority', []):
         if kw.lower() in text:
-            score = max(score, 5)
+            score = 5
             keywords.append(kw)
     
-    for kw in config['keywords'].get('medium_priority', []):
-        if kw.lower() in text:
-            score = max(score, 3)
-            keywords.append(kw)
+    if score < 5:
+        for kw in config['keywords'].get('medium_priority', []):
+            if kw.lower() in text:
+                score = max(score, 3)
+                keywords.append(kw)
     
-    for kw in config['keywords'].get('low_priority', []):
-        if kw.lower() in text:
-            score = max(score, 1)
-            keywords.append(kw)
+    if score < 3:
+        for kw in config['keywords'].get('low_priority', []):
+            if kw.lower() in text:
+                score = max(score, 2)
+                keywords.append(kw)
     
-    return max(score, 1), keywords  # Minimum 1 star
+    return score, keywords
 
-def get_stars_emoji(score: int) -> str:
-    """Convert score to emoji."""
-    return {5: "🔥🔥🔥🔥🔥", 4: "⭐⭐⭐⭐", 3: "⭐⭐⭐", 2: "⭐⭐", 1: "⭐"}.get(score, "⭐")
-
-def fetch_arxiv_articles(categories: List[str], days: int = 7) -> List[Dict]:
-    """Fetch recent ArXiv articles."""
+def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
+    """Fetch ArXiv articles."""
     articles = []
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     headers = {'User-Agent': 'ArXiv-Dashboard/1.0'}
     
+    print(f"📅 Looking for articles from last {days} days (since {cutoff.strftime('%Y-%m-%d')})\n")
+    
     for i, cat in enumerate(categories):
-        print(f"📡 Fetching {cat}...")
-        
-        url = "http://export.arxiv.org/api/query"
-        params = {
-            "search_query": f"cat:{cat}",
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-            "max_results": 50
-        }
+        print(f"📡 {cat}...", end=" ")
         
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
+            response = requests.get(
+                "http://export.arxiv.org/api/query",
+                params={
+                    "search_query": f"cat:{cat}",
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                    "max_results": 100  # Get more to ensure we have recent ones
+                },
+                headers=headers,
+                timeout=30
+            )
+            
             root = ET.fromstring(response.content)
             ns = {'atom': 'http://www.w3.org/2005/Atom'}
             
+            found_in_range = 0
+            
             for entry in root.findall('atom:entry', ns):
-                title_elem = entry.find('atom:title', ns)
-                link_elem = entry.find('atom:id', ns)
-                date_elem = entry.find('atom:published', ns)
-                abstract_elem = entry.find('atom:summary', ns)
-                authors_elem = entry.findall('atom:author/atom:name', ns)
+                title = entry.find('atom:title', ns)
+                link = entry.find('atom:id', ns)
+                date = entry.find('atom:published', ns)
+                abstract = entry.find('atom:summary', ns)
+                authors = entry.findall('atom:author/atom:name', ns)
                 
-                if not all([title_elem, link_elem, date_elem, abstract_elem]):
+                if not all([title, link, date, abstract]):
                     continue
                 
-                title = ' '.join(title_elem.text.split())
-                abstract = ' '.join(abstract_elem.text.split())
-                link = link_elem.text
-                pub_date = datetime.fromisoformat(date_elem.text.replace('Z', '+00:00'))
+                pub_date = datetime.fromisoformat(date.text.replace('Z', '+00:00'))
                 
-                # Filter by date
+                # Check date range
                 if pub_date < cutoff:
                     continue
                 
-                # Calculate relevance
-                score, keywords = calculate_relevance(title, abstract)
-                min_score = config.get('min_relevance', 0)
+                found_in_range += 1
                 
-                if score < min_score:
-                    continue
+                title_text = ' '.join(title.text.split())
+                abstract_text = ' '.join(abstract.text.split())
                 
-                # Extract authors
-                authors = ', '.join([a.text for a in authors_elem[:5]])
-                if len(authors_elem) > 5:
-                    authors += f" et al. ({len(authors_elem)} total)"
+                score, keywords = calculate_relevance(title_text, abstract_text)
                 
-                # Get PDF URL
-                arxiv_id = re.search(r'(\d{4}\.\d{4,5})', link)
-                pdf_url = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf" if arxiv_id else link
+                arxiv_id = re.search(r'(\d{4}\.\d{4,5})', link.text)
+                pdf = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf" if arxiv_id else link.text
+                
+                authors_str = ', '.join([a.text for a in authors[:3]])
+                if len(authors) > 3:
+                    authors_str += f" et al."
                 
                 articles.append({
-                    'title': title,
-                    'link': link,
-                    'pdf_url': pdf_url,
-                    'published': pub_date,
-                    'abstract': abstract[:2000],
-                    'authors': authors,
+                    'title': title_text,
+                    'link': link.text,
+                    'pdf': pdf,
+                    'date': pub_date,
+                    'abstract': abstract_text[:2000],
+                    'authors': authors_str,
                     'category': cat,
                     'score': score,
-                    'stars': get_stars_emoji(score),
-                    'keywords': ', '.join(keywords[:5])
+                    'keywords': keywords
                 })
             
-            print(f"  ✅ Found {len([a for a in articles if a['category'] == cat])} articles")
+            print(f"✅ {found_in_range} articles")
             
         except Exception as e:
-            print(f"  ❌ Error: {e}")
+            print(f"❌ Error: {e}")
         
-        # Rate limit
         if i < len(categories) - 1:
             time.sleep(3)
     
     # Sort by score then date
-    articles.sort(key=lambda x: (x['score'], x['published']), reverse=True)
+    articles.sort(key=lambda x: (x['score'], x['date']), reverse=True)
     return articles
 
-def add_to_notion(article: Dict) -> bool:
+def add_to_notion(article: Dict, is_top: bool = False):
     """Add article to Notion."""
+    stars = {5: "🔥🔥🔥🔥🔥", 4: "⭐⭐⭐⭐", 3: "⭐⭐⭐", 2: "⭐⭐", 1: "⭐"}[article['score']]
+    priority = "🏆 TOP 5" if is_top else "📚 Reading List"
+    
     try:
         notion.pages.create(
             parent={"database_id": DATABASE_ID},
             properties={
                 "Title": {"title": [{"text": {"content": article['title']}}]},
                 "URL": {"url": article['link']},
-                "PDF": {"url": article['pdf_url']},
-                "Date": {"date": {"start": article['published'].isoformat()}},
+                "PDF": {"url": article['pdf']},
+                "Date": {"date": {"start": article['date'].isoformat()}},
                 "Category": {"rich_text": [{"text": {"content": article['category']}}]},
                 "Authors": {"rich_text": [{"text": {"content": article['authors']}}]},
-                "Relevance": {"select": {"name": article['stars']}},
-                "Keywords": {"rich_text": [{"text": {"content": article['keywords']}}]},
+                "Relevance": {"select": {"name": stars}},
+                "Priority": {"select": {"name": priority}},
+                "Keywords": {"rich_text": [{"text": {"content": ', '.join(article['keywords'][:5])}}]},
             },
             children=[
                 {"object": "block", "type": "heading_2", "heading_2": {"rich_text": [{"text": {"content": "Abstract"}}]}},
@@ -167,17 +169,17 @@ def add_to_notion(article: Dict) -> bool:
                 {"object": "block", "type": "divider", "divider": {}},
                 {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [
                     {"text": {"content": "📄 "}},
-                    {"text": {"content": "Download PDF", "link": {"url": article['pdf_url']}}}
+                    {"text": {"content": "Download PDF", "link": {"url": article['pdf']}}}
                 ]}}
             ]
         )
         return True
     except Exception as e:
-        print(f"  ❌ Error adding: {e}")
+        print(f"    ❌ {e}")
         return False
 
-def get_existing_titles() -> set:
-    """Get titles already in Notion."""
+def get_existing_titles():
+    """Get existing titles."""
     titles = set()
     cursor = None
     
@@ -188,75 +190,83 @@ def get_existing_titles() -> set:
         
         response = notion.databases.query(**params)
         
-        for page in response.get("results", []):
+        for page in response["results"]:
             title_prop = page["properties"].get("Title", {}).get("title", [])
             if title_prop:
                 titles.add(title_prop[0]["text"]["content"])
         
         if not response.get("has_more"):
             break
-        cursor = response.get("next_cursor")
+        cursor = response["next_cursor"]
     
     return titles
 
-def cleanup_old_articles(max_keep: int):
-    """Archive old articles."""
+def cleanup(max_keep: int):
+    """Keep only most recent articles."""
     response = notion.databases.query(
         database_id=DATABASE_ID,
         sorts=[{"property": "Date", "direction": "ascending"}],
         page_size=100
     )
     
-    pages = response.get("results", [])
-    to_archive = len(pages) - max_keep
-    
-    if to_archive > 0:
-        print(f"🧹 Archiving {to_archive} old articles...")
-        for page in pages[:to_archive]:
+    pages = response["results"]
+    if len(pages) > max_keep:
+        for page in pages[:len(pages) - max_keep]:
             notion.pages.update(page_id=page["id"], archived=True)
+        print(f"🧹 Archived {len(pages) - max_keep} old articles")
 
 # =====================
 # Main
 # =====================
 
 def main():
-    print("🌌 ArXiv Research Dashboard Sync\n")
+    print("\n" + "=" * 70)
+    print("🌌 ArXiv Research Dashboard")
+    print("=" * 70 + "\n")
     
-    # Config
-    categories = config.get('arxiv_categories', ['gr-qc'])
-    max_articles = config.get('max_articles', 10)
+    days = config.get('days_lookback', 7)
+    max_articles = config.get('max_articles', 20)
+    top_n = config.get('top_n', 5)
     
-    print(f"📚 Categories: {', '.join(categories)}")
-    print(f"🎯 Keep top {max_articles} articles")
-    print(f"⭐ Min relevance: {config.get('min_relevance', 0)} stars\n")
+    # Fetch
+    articles = fetch_arxiv(config['arxiv_categories'], days)
     
-    # Fetch articles
-    articles = fetch_arxiv_articles(categories, days=7)
-    print(f"\n📊 Total: {len(articles)} relevant articles found\n")
+    print(f"\n📊 Found {len(articles)} total articles")
     
     if not articles:
-        print("⚠️  No articles found")
+        print("\n⚠️  No articles found. Try increasing days_lookback in config.yaml")
         return
+    
+    # Show top articles
+    print(f"\n🏆 TOP {top_n} Articles:")
+    for i, a in enumerate(articles[:top_n], 1):
+        print(f"  [{i}] Score {a['score']}/5: {a['title'][:80]}...")
     
     # Get existing
     existing = get_existing_titles()
-    print(f"📋 {len(existing)} articles already in Notion\n")
+    print(f"\n📋 {len(existing)} articles already in Notion")
     
     # Add new ones
-    print(f"✨ Adding top {max_articles}...\n")
+    print(f"\n✨ Adding new articles...\n")
     added = 0
     
-    for article in articles[:max_articles]:
+    for i, article in enumerate(articles[:max_articles]):
+        is_top = i < top_n
+        
         if article['title'] not in existing:
-            print(f"  {article['stars']} {article['title'][:70]}...")
-            if add_to_notion(article):
+            priority_marker = "🏆" if is_top else "  "
+            print(f"  {priority_marker} {article['title'][:70]}...")
+            if add_to_notion(article, is_top):
                 added += 1
     
-    print(f"\n🎉 Added {added} new articles!")
+    print(f"\n🎉 Added {added} new articles")
     
     # Cleanup
-    cleanup_old_articles(max_articles)
-    print("\n✅ Done!\n")
+    cleanup(max_articles)
+    
+    print("\n" + "=" * 70)
+    print("✅ Done! Check Notion for your reading dashboard")
+    print("=" * 70 + "\n")
 
 if __name__ == "__main__":
     main()
