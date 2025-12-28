@@ -1,0 +1,25 @@
+name: Update Notion News
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # toutes les heures
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - run: python notion_news.py
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          DATABASE_ID: ${{ secrets.DATABASE_ID }}
+          RSS_URL: "http://export.arxiv.org/rss/astro-ph.CO"
+          K: "5"
