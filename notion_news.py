@@ -1,16 +1,17 @@
 import os
-import feedparser
+import requests
+import xml.etree.ElementTree as ET
 from notion_client import Client
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # =====================
 # Configuration
 # =====================
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DATABASE_ID = os.environ["DATABASE_ID"]
-RSS_URL = os.getenv("RSS_URL", "http://export.arxiv.org/rss/astro-ph.CO")
+ARXIV_CATEGORY = os.getenv("ARXIV_CATEGORY", "gr-qc")
 K = int(os.getenv("K", 5))
-SOURCE = os.getenv("SOURCE", "arXiv astro-ph.CO")
+SOURCE = os.getenv("SOURCE", f"arXiv {ARXIV_CATEGORY}")
 
 notion = Client(auth=NOTION_TOKEN)
 
@@ -18,7 +19,7 @@ notion = Client(auth=NOTION_TOKEN)
 # Functions
 # =====================
 def test_database_connection():
-    """Check if we can access the Notion database and print YES or NO."""
+    """Check if we can access the Notion database."""
     try:
         db = notion.databases.retrieve(database_id=DATABASE_ID)
         print("✅ YES - Connected to database:", db["id"])
@@ -31,6 +32,63 @@ def test_database_connection():
         import traceback
         traceback.print_exc()
         return False
+
+def fetch_arxiv_articles(category, max_results=10):
+    """Fetch recent articles from ArXiv API."""
+    base_url = "http://export.arxiv.org/api/query"
+    
+    # Chercher les articles des 7 derniers jours
+    params = {
+        "search_query": f"cat:{category}",
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+        "max_results": max_results
+    }
+    
+    print(f"📡 Querying ArXiv API for category: {category}")
+    
+    try:
+        response = requests.get(base_url, params=params, timeout=30)
+        response.raise_for_status()
+        
+        # Parse XML
+        root = ET.fromstring(response.content)
+        
+        # Namespace pour ArXiv
+        ns = {
+            'atom': 'http://www.w3.org/2005/Atom',
+            'arxiv': 'http://arxiv.org/schemas/atom'
+        }
+        
+        entries = []
+        for entry in root.findall('atom:entry', ns):
+            title_elem = entry.find('atom:title', ns)
+            link_elem = entry.find('atom:id', ns)
+            published_elem = entry.find('atom:published', ns)
+            
+            if title_elem is not None and link_elem is not None and published_elem is not None:
+                # Clean title (remove extra whitespace)
+                title = ' '.join(title_elem.text.split())
+                link = link_elem.text
+                
+                # Parse date
+                published_str = published_elem.text
+                published_date = datetime.fromisoformat(published_str.replace('Z', '+00:00'))
+                
+                entries.append({
+                    'title': title,
+                    'link': link,
+                    'published': published_date
+                })
+        
+        print(f"✅ Found {len(entries)} articles from ArXiv API")
+        return entries
+        
+    except Exception as e:
+        print(f"❌ Error fetching from ArXiv API: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
 def fetch_existing_titles():
     """Fetch existing titles from the Notion database."""
@@ -73,13 +131,13 @@ def add_entry(entry):
         notion.pages.create(
             parent={"database_id": DATABASE_ID},
             properties={
-                "Title": {"title": [{"text": {"content": entry.title}}]},
-                "URL": {"url": entry.link},
-                "Date": {"date": {"start": datetime(*entry.published_parsed[:6]).isoformat()}},
+                "Title": {"title": [{"text": {"content": entry['title']}}]},
+                "URL": {"url": entry['link']},
+                "Date": {"date": {"start": entry['published'].isoformat()}},
                 "Source": {"select": {"name": SOURCE}},
             },
         )
-        print(f"  ✅ Added: {entry.title[:80]}...")
+        print(f"  ✅ Added: {entry['title'][:80]}...")
         return True
     except Exception as e:
         print(f"  ❌ Failed to add entry: {e}")
@@ -125,27 +183,34 @@ def main():
         print("❌ Stopping execution")
         return
     
-    print(f"\n📰 Fetching RSS feed: {RSS_URL}")
-    feed = feedparser.parse(RSS_URL)
+    # Fetch articles from ArXiv API
+    entries = fetch_arxiv_articles(ARXIV_CATEGORY, max_results=K*2)
     
-    if not feed.entries:
+    if not entries:
         print("⚠️  No entries found")
         return
     
-    print(f"✅ Found {len(feed.entries)} entries")
+    print(f"✅ Found {len(entries)} entries")
     
     print("\n📋 Fetching existing titles...")
     existing = fetch_existing_titles()
     
     print(f"\n✨ Processing top {K} entries...")
     new_count = 0
-    for i, entry in enumerate(feed.entries[:K], 1):
-        if entry.title not in existing:
-            print(f"[{i}/{K}] New entry:")
+    processed = 0
+    
+    for entry in entries:
+        if processed >= K:
+            break
+            
+        if entry['title'] not in existing:
+            print(f"[{processed+1}/{K}] New entry:")
             if add_entry(entry):
                 new_count += 1
+                processed += 1
         else:
-            print(f"[{i}/{K}] Already exists: {entry.title[:60]}...")
+            print(f"[{processed+1}/{K}] Already exists: {entry['title'][:60]}...")
+            processed += 1
     
     if new_count > 0:
         print(f"\n🎉 Added {new_count} new entries!")
