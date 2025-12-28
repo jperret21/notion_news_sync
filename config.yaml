@@ -1,37 +1,17 @@
 keywords:
   high_priority:
-    - "gravitational wave"
-    - "black hole"
-    - "LIGO"
-    - "neutron star"
-    - "gravitational lensing"
-    - "merger"
-  
+    - gravitational
+    - black hole
+    - neutron star
   medium_priority:
-    - "cosmology"
-    - "dark matter"
-    - "dark energy"
-    - "relativity"
-    - "spacetime"
-    - "gravity"
-    - "Einstein"
-    - "metric"
-    - "curvature"
-    - "singularity"
-    - "horizon"
-    - "wormhole"
-  
-  low_priority:
-    - "numerical"
-    - "quantum"
-    - "field theory"
-    - "GR"
-    - "cosmological"
+    - cosmology
+    - relativity
+    - dark matter
+  low_priority: []
 
 arxiv_categories:
   - gr-qc
   - astro-ph.CO
-  - astro-ph.HE
 
-max_articles: 20
-min_relevance: 0  # Accept everything with at least 1 keyword match
+max_articles: 10
+min_relevance: 0  # 0 = accept all, 1-5 to filter
