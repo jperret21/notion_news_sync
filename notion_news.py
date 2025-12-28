@@ -3,7 +3,7 @@ import yaml
 import requests
 import xml.etree.ElementTree as ET
 from notion_client import Client
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 import re
 
@@ -13,12 +13,12 @@ import re
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DATABASE_ID = os.environ["DATABASE_ID"]
 
-# Charger la config (ou utiliser des valeurs par défaut)
+# Load config (or use default values)
 try:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
 except:
-    # Configuration par défaut si config.yaml n'existe pas
+    # Default configuration if config.yaml doesn't exist
     config = {
         'keywords': {
             'high_priority': ['gravitational waves', 'black hole'],
@@ -33,12 +33,12 @@ except:
 notion = Client(auth=NOTION_TOKEN)
 
 # =====================
-# Fonctions utilitaires
+# Utility Functions
 # =====================
 
 def calculate_relevance(title: str, abstract: str) -> tuple:
     """
-    Calcule le score de pertinence (1-5 étoiles) et les tags trouvés.
+    Calculate relevance score (1-5 stars) and found tags.
     
     Returns:
         (score, matching_keywords)
@@ -47,19 +47,19 @@ def calculate_relevance(title: str, abstract: str) -> tuple:
     matching_keywords = []
     score = 0
     
-    # Vérifier les mots-clés haute priorité
+    # Check high priority keywords
     for keyword in config['keywords'].get('high_priority', []):
         if keyword.lower() in text:
             score = max(score, 5)
             matching_keywords.append(keyword)
     
-    # Vérifier les mots-clés moyenne priorité
+    # Check medium priority keywords
     for keyword in config['keywords'].get('medium_priority', []):
         if keyword.lower() in text:
             score = max(score, 3)
             matching_keywords.append(keyword)
     
-    # Vérifier les mots-clés basse priorité
+    # Check low priority keywords
     for keyword in config['keywords'].get('low_priority', []):
         if keyword.lower() in text:
             score = max(score, 1)
@@ -68,7 +68,7 @@ def calculate_relevance(title: str, abstract: str) -> tuple:
     return score if score > 0 else 1, matching_keywords
 
 def get_stars_emoji(score: int) -> str:
-    """Convertit un score en émojis étoiles."""
+    """Convert score to star emojis."""
     stars = {
         5: "🔥🔥🔥🔥🔥",
         4: "⭐⭐⭐⭐",
@@ -79,21 +79,21 @@ def get_stars_emoji(score: int) -> str:
     return stars.get(score, "⭐")
 
 def extract_arxiv_id(url: str) -> str:
-    """Extrait l'ID ArXiv de l'URL."""
+    """Extract ArXiv ID from URL."""
     match = re.search(r'(\d{4}\.\d{4,5})', url)
     return match.group(1) if match else ""
 
 def get_pdf_url(arxiv_url: str) -> str:
-    """Convertit l'URL ArXiv en URL PDF."""
+    """Convert ArXiv URL to PDF URL."""
     arxiv_id = extract_arxiv_id(arxiv_url)
     return f"https://arxiv.org/pdf/{arxiv_id}.pdf" if arxiv_id else arxiv_url
 
 # =====================
-# Fonctions principales
+# Main Functions
 # =====================
 
 def test_database_connection():
-    """Vérifie la connexion à Notion."""
+    """Check Notion connection."""
     try:
         db = notion.databases.retrieve(database_id=DATABASE_ID)
         print("✅ Connected to database:", db["id"])
@@ -104,11 +104,11 @@ def test_database_connection():
 
 def fetch_arxiv_articles(categories: List[str], max_results: int = 50) -> List[Dict]:
     """
-    Récupère les articles ArXiv des 7 derniers jours.
+    Fetch ArXiv articles from the last 7 days.
     """
     all_entries = []
     
-    # Date limite : 7 jours en arrière
+    # Cutoff date: 7 days ago
     cutoff_date = datetime.now() - timedelta(days=7)
     
     for category in categories:
@@ -142,30 +142,30 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 50) -> List[D
                 if not all([title_elem, link_elem, published_elem, summary_elem]):
                     continue
                 
-                # Nettoyer le titre et l'abstract
+                # Clean title and abstract
                 title = ' '.join(title_elem.text.split())
                 abstract = ' '.join(summary_elem.text.split())
                 link = link_elem.text
                 
-                # Parser la date
+                # Parse date
                 published_date = datetime.fromisoformat(
                     published_elem.text.replace('Z', '+00:00')
                 )
                 
-                # ⭐ Filtrer par date (7 derniers jours)
+                # ⭐ Filter by date (last 7 days)
                 if published_date < cutoff_date:
                     continue
                 
-                # Extraire les auteurs (max 5)
+                # Extract authors (max 5)
                 author_list = [a.text for a in authors[:5]]
                 authors_str = ', '.join(author_list)
                 if len(authors) > 5:
                     authors_str += f" et al. ({len(authors)} authors)"
                 
-                # Calculer la pertinence
+                # Calculate relevance
                 relevance_score, keywords = calculate_relevance(title, abstract)
                 
-                # Filtrer selon le seuil minimum
+                # Filter by minimum threshold
                 if relevance_score < config.get('min_relevance', 1):
                     continue
                 
@@ -187,14 +187,14 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 50) -> List[D
         except Exception as e:
             print(f"  ❌ Error fetching {category}: {e}")
     
-    # Trier par pertinence puis par date
+    # Sort by relevance then date
     all_entries.sort(key=lambda x: (x['relevance'], x['published']), reverse=True)
     
     print(f"\n📊 Total: {len(all_entries)} relevant articles")
     return all_entries
 
 def fetch_existing_titles() -> set:
-    """Récupère les titres existants dans Notion."""
+    """Fetch existing titles from Notion."""
     titles = set()
     has_more = True
     start_cursor = None
@@ -223,7 +223,7 @@ def fetch_existing_titles() -> set:
     return titles
 
 def add_entry(entry: Dict) -> bool:
-    """Ajoute un article à Notion avec toutes les métadonnées."""
+    """Add article to Notion with all metadata."""
     try:
         properties = {
             "Title": {"title": [{"text": {"content": entry['title']}}]},
@@ -236,7 +236,7 @@ def add_entry(entry: Dict) -> bool:
             "Keywords": {"rich_text": [{"text": {"content": entry['keywords']}}]},
         }
         
-        # Ajouter l'abstract dans le corps de la page
+        # Add abstract in page body
         children = [
             {
                 "object": "block",
@@ -286,7 +286,7 @@ def add_entry(entry: Dict) -> bool:
         return False
 
 def trim_database(max_articles: int):
-    """Archive les articles les plus anciens."""
+    """Archive oldest articles."""
     try:
         response = notion.databases.query(
             database_id=DATABASE_ID,
@@ -317,7 +317,7 @@ def main():
     print("🌌 ArXiv Research Dashboard Sync")
     print("=" * 70)
     
-    # Test connexion
+    # Test connection
     if not test_database_connection():
         return
     
@@ -329,17 +329,17 @@ def main():
     print(f"🎯 Max articles to keep: {max_articles}")
     print(f"⭐ Minimum relevance: {config.get('min_relevance', 1)} stars\n")
     
-    # Récupérer les articles
-    articles = fetch_arxiv_articles(categories, max_results=30)
+    # Fetch articles
+    articles = fetch_arxiv_articles(categories, max_results=50)
     
     if not articles:
         print("⚠️  No relevant articles found")
         return
     
-    # Récupérer les titres existants
+    # Fetch existing titles
     existing = fetch_existing_titles()
     
-    # Ajouter les nouveaux articles
+    # Add new articles
     print(f"\n✨ Adding new articles (top {max_articles})...\n")
     new_count = 0
     
@@ -351,14 +351,14 @@ def main():
         else:
             print(f"[{i}/{max_articles}] ⏭️  Already exists: {article['title'][:60]}...")
     
-    # Statistiques
+    # Statistics
     print(f"\n{'=' * 70}")
     if new_count > 0:
         print(f"🎉 Added {new_count} new articles!")
     else:
         print(f"✅ No new articles (all up to date)")
     
-    # Nettoyage
+    # Cleanup
     print()
     trim_database(max_articles)
     
