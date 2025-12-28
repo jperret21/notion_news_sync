@@ -1,17 +1,28 @@
 keywords:
   high_priority:
-    - gravitational
+    - gravitational wave
     - black hole
     - neutron star
+    - LIGO
+    - merger
+    - lensing
+  
   medium_priority:
     - cosmology
     - relativity
     - dark matter
-  low_priority: []
+    - spacetime
+    - Einstein
+    - metric
+  
+  low_priority:
+    - numerical
+    - simulation
 
 arxiv_categories:
   - gr-qc
   - astro-ph.CO
 
-max_articles: 10
-min_relevance: 0  # 0 = accept all, 1-5 to filter
+days_lookback: 14  # Look back 14 days for testing (change to 7 after holidays)
+max_articles: 20   # Keep 20 most recent articles in Notion
+top_n: 5           # Mark top 5 as priority reading
