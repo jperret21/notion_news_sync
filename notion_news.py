@@ -8,49 +8,29 @@ from typing import List, Dict
 import re
 import time
 
-print("=" * 70)
-print("🚀 STARTING ArXiv Research Dashboard")
-print("=" * 70)
-
 # =====================
 # Configuration
 # =====================
-print("\n📋 Step 1: Loading configuration...")
-
-NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-DATABASE_ID = os.environ.get("DATABASE_ID")
-
-print(f"   NOTION_TOKEN: {'✅ Set' if NOTION_TOKEN else '❌ Missing'}")
-print(f"   DATABASE_ID: {'✅ Set' if DATABASE_ID else '❌ Missing'}")
+NOTION_TOKEN = os.environ["NOTION_TOKEN"]
+DATABASE_ID = os.environ["DATABASE_ID"]
 
 try:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
-    print("   ✅ config.yaml loaded successfully")
-except Exception as e:
-    print(f"   ⚠️  config.yaml not found, using defaults: {e}")
+except:
     config = {
         'keywords': {
             'high_priority': ['gravitational', 'black hole', 'neutron star'],
             'medium_priority': ['cosmology', 'relativity'],
             'low_priority': []
         },
-        'arxiv_categories': ['gr-qc'],
+        'arxiv_categories': ['gr-qc', 'astro-ph.CO'],
         'days_lookback': 14,
         'max_articles': 20,
         'top_n': 5
     }
 
-print(f"   Categories: {config['arxiv_categories']}")
-print(f"   Days lookback: {config['days_lookback']}")
-print(f"   Max articles: {config['max_articles']}")
-print(f"   Top N: {config['top_n']}")
-
 notion = Client(auth=NOTION_TOKEN)
-
-# =====================
-# Functions
-# =====================
 
 def calculate_relevance(title: str, abstract: str) -> tuple:
     """Score 1-5 based on keywords."""
@@ -78,127 +58,92 @@ def calculate_relevance(title: str, abstract: str) -> tuple:
     return score, keywords
 
 def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
-    """Fetch ArXiv articles with detailed debugging."""
-    print(f"\n📡 Step 2: Fetching articles from ArXiv API")
-    print(f"   Categories to fetch: {categories}")
-    print(f"   Looking back: {days} days")
+    """Fetch ArXiv articles."""
+    print(f"\n📡 Fetching articles (last {days} days)...\n")
     
     articles = []
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
-    
-    print(f"   Current UTC time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"   Cutoff date: {cutoff.strftime('%Y-%m-%d %H:%M:%S')}")
-    
     headers = {'User-Agent': 'ArXiv-Dashboard/1.0'}
     
-    for cat_idx, cat in enumerate(categories, 1):
-        print(f"\n   [{cat_idx}/{len(categories)}] Fetching category: {cat}")
-        
-        url = "http://export.arxiv.org/api/query"
-        params = {
-            "search_query": f"cat:{cat}",
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-            "max_results": 50
-        }
-        
-        print(f"      URL: {url}")
-        print(f"      Params: {params}")
-        print(f"      Making HTTP request...")
+    for cat in categories:
+        print(f"   {cat}...", end=" ")
         
         try:
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-            print(f"      ✅ HTTP {response.status_code}")
-            print(f"      Response size: {len(response.content)} bytes")
+            response = requests.get(
+                "http://export.arxiv.org/api/query",
+                params={
+                    "search_query": f"cat:{cat}",
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                    "max_results": 50
+                },
+                headers=headers,
+                timeout=30
+            )
             
-            print(f"      Parsing XML...")
             root = ET.fromstring(response.content)
-            ns = {'atom': 'http://www.w3.org/2005/Atom'}
             
-            entries = root.findall('atom:entry', ns)
-            print(f"      ✅ Found {len(entries)} entries in XML")
+            # ⭐ FIX: Use default namespace (no prefix)
+            # ArXiv uses Atom which is the default namespace
+            ns = {'': 'http://www.w3.org/2005/Atom'}
             
-            if len(entries) == 0:
-                print(f"      ⚠️  WARNING: No entries found in API response!")
-                continue
+            # ⭐ Find entries WITHOUT namespace prefix
+            entries = root.findall('entry', ns)
             
-            processed = 0
-            passed_date_filter = 0
-            passed_relevance_filter = 0
+            # If that doesn't work, try with explicit namespace
+            if not entries:
+                ns_explicit = {'atom': 'http://www.w3.org/2005/Atom'}
+                entries = root.findall('atom:entry', ns_explicit)
             
-            print(f"      Processing entries...")
+            # If still nothing, try without any namespace
+            if not entries:
+                entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
             
-            for entry_idx, entry in enumerate(entries, 1):
-                title_elem = entry.find('atom:title', ns)
-                link_elem = entry.find('atom:id', ns)
-                date_elem = entry.find('atom:published', ns)
-                abstract_elem = entry.find('atom:summary', ns)
-                authors_elem = entry.findall('atom:author/atom:name', ns)
+            print(f"{len(entries)} entries", end=" ")
+            
+            count = 0
+            for entry in entries:
+                # ⭐ Try multiple ways to find elements
+                title = (entry.find('title', ns) or 
+                        entry.find('{http://www.w3.org/2005/Atom}title') or
+                        entry.find('atom:title', {'atom': 'http://www.w3.org/2005/Atom'}))
                 
-                if not all([title_elem, link_elem, date_elem, abstract_elem]):
-                    print(f"         [{entry_idx}] ⚠️  Skipping: missing elements")
+                link = (entry.find('id', ns) or 
+                       entry.find('{http://www.w3.org/2005/Atom}id'))
+                
+                date = (entry.find('published', ns) or 
+                       entry.find('{http://www.w3.org/2005/Atom}published'))
+                
+                abstract = (entry.find('summary', ns) or 
+                           entry.find('{http://www.w3.org/2005/Atom}summary'))
+                
+                authors = (entry.findall('author/name', ns) or 
+                          entry.findall('{http://www.w3.org/2005/Atom}author/{http://www.w3.org/2005/Atom}name'))
+                
+                if not all([title, link, date, abstract]):
                     continue
                 
-                processed += 1
+                pub_date = datetime.fromisoformat(date.text.replace('Z', '+00:00'))
                 
-                # Parse date
-                pub_date = datetime.fromisoformat(date_elem.text.replace('Z', '+00:00'))
-                days_old = (now - pub_date).days
-                
-                # Show first 3 articles in detail
-                if entry_idx <= 3:
-                    title_preview = ' '.join(title_elem.text.split())[:70]
-                    print(f"\n         [{entry_idx}] Article details:")
-                    print(f"            Title: {title_preview}...")
-                    print(f"            Published: {pub_date.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"            Days old: {days_old}")
-                    print(f"            Cutoff check: pub_date ({pub_date}) >= cutoff ({cutoff}) = {pub_date >= cutoff}")
-                
-                # Date filter
                 if pub_date < cutoff:
-                    if entry_idx <= 3:
-                        print(f"            ❌ FILTERED: Too old (before cutoff)")
                     continue
                 
-                passed_date_filter += 1
-                if entry_idx <= 3:
-                    print(f"            ✅ Passed date filter")
+                title_text = ' '.join(title.text.split())
+                abstract_text = ' '.join(abstract.text.split())
                 
-                # Extract data
-                title_text = ' '.join(title_elem.text.split())
-                abstract_text = ' '.join(abstract_elem.text.split())
-                
-                # Calculate relevance
                 score, keywords = calculate_relevance(title_text, abstract_text)
                 
-                if entry_idx <= 3:
-                    print(f"            Relevance score: {score}/5")
-                    print(f"            Keywords found: {keywords if keywords else 'None'}")
+                arxiv_id = re.search(r'(\d{4}\.\d{4,5})', link.text)
+                pdf = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf" if arxiv_id else link.text
                 
-                # Relevance filter (if min_relevance exists in config)
-                min_relevance = config.get('min_relevance', 0)
-                if score < min_relevance:
-                    if entry_idx <= 3:
-                        print(f"            ❌ FILTERED: Score {score} < min {min_relevance}")
-                    continue
-                
-                passed_relevance_filter += 1
-                if entry_idx <= 3:
-                    print(f"            ✅ Passed relevance filter")
-                
-                # Extract authors
-                authors_str = ', '.join([a.text for a in authors_elem[:3]])
-                if len(authors_elem) > 3:
-                    authors_str += f" et al."
-                
-                # Get PDF URL
-                arxiv_id = re.search(r'(\d{4}\.\d{4,5})', link_elem.text)
-                pdf = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf" if arxiv_id else link_elem.text
+                authors_str = ', '.join([a.text for a in authors[:3]])
+                if len(authors) > 3:
+                    authors_str += " et al."
                 
                 articles.append({
                     'title': title_text,
-                    'link': link_elem.text,
+                    'link': link.text,
                     'pdf': pdf,
                     'date': pub_date,
                     'abstract': abstract_text[:2000],
@@ -207,31 +152,16 @@ def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
                     'score': score,
                     'keywords': keywords
                 })
-                
-                if entry_idx <= 3:
-                    print(f"            ✅ ADDED to results")
+                count += 1
             
-            print(f"\n      Summary for {cat}:")
-            print(f"         Total entries in XML: {len(entries)}")
-            print(f"         Processed (valid structure): {processed}")
-            print(f"         Passed date filter: {passed_date_filter}")
-            print(f"         Passed relevance filter: {passed_relevance_filter}")
-            print(f"         Added to results: {len([a for a in articles if a['category'] == cat])}")
+            print(f"→ {count} in range")
             
         except Exception as e:
-            print(f"      ❌ ERROR: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"ERROR: {e}")
         
-        # Rate limit
-        if cat_idx < len(categories):
-            print(f"      ⏳ Waiting 3 seconds before next category...")
-            time.sleep(3)
+        time.sleep(3)
     
-    print(f"\n   Sorting articles by score and date...")
     articles.sort(key=lambda x: (x['score'], x['date']), reverse=True)
-    
-    print(f"   ✅ Total articles collected: {len(articles)}")
     return articles
 
 def add_to_notion(article: Dict, is_top: bool = False):
@@ -265,15 +195,13 @@ def add_to_notion(article: Dict, is_top: bool = False):
         )
         return True
     except Exception as e:
-        print(f"         ❌ Error: {e}")
+        print(f"      ❌ {e}")
         return False
 
 def get_existing_titles():
     """Get existing titles."""
-    print(f"\n📋 Step 3: Checking existing articles in Notion...")
     titles = set()
     cursor = None
-    page_count = 0
     
     while True:
         params = {"database_id": DATABASE_ID, "page_size": 100}
@@ -281,7 +209,6 @@ def get_existing_titles():
             params["start_cursor"] = cursor
         
         response = notion.databases.query(**params)
-        page_count += 1
         
         for page in response["results"]:
             title_prop = page["properties"].get("Title", {}).get("title", [])
@@ -292,14 +219,10 @@ def get_existing_titles():
             break
         cursor = response["next_cursor"]
     
-    print(f"   ✅ Found {len(titles)} existing articles (fetched {page_count} pages)")
     return titles
 
 def cleanup(max_keep: int):
     """Keep only most recent articles."""
-    print(f"\n🧹 Step 5: Cleaning up old articles...")
-    print(f"   Max to keep: {max_keep}")
-    
     response = notion.databases.query(
         database_id=DATABASE_ID,
         sorts=[{"property": "Date", "direction": "ascending"}],
@@ -307,74 +230,48 @@ def cleanup(max_keep: int):
     )
     
     pages = response["results"]
-    print(f"   Current total: {len(pages)} articles")
-    
     if len(pages) > max_keep:
-        to_archive = len(pages) - max_keep
-        print(f"   Archiving {to_archive} oldest articles...")
-        for page in pages[:to_archive]:
+        for page in pages[:len(pages) - max_keep]:
             notion.pages.update(page_id=page["id"], archived=True)
-        print(f"   ✅ Archived {to_archive} articles")
-    else:
-        print(f"   ✅ No cleanup needed")
+        print(f"🧹 Archived {len(pages) - max_keep} old articles")
 
 def main():
+    print("\n🌌 ArXiv Research Dashboard\n")
+    
     days = config.get('days_lookback', 14)
     max_articles = config.get('max_articles', 20)
     top_n = config.get('top_n', 5)
     
-    # Fetch
     articles = fetch_arxiv(config['arxiv_categories'], days)
     
-    print(f"\n📊 RESULTS SUMMARY:")
-    print(f"   Total articles found: {len(articles)}")
+    print(f"\n📊 Total: {len(articles)} articles\n")
     
     if not articles:
-        print(f"\n⚠️  NO ARTICLES FOUND!")
-        print(f"   Possible reasons:")
-        print(f"   1. ArXiv hasn't published in the last {days} days (holidays/weekends)")
-        print(f"   2. API request failed")
-        print(f"   3. All articles filtered out by date or relevance")
-        print(f"\n💡 Try:")
-        print(f"   - Increase days_lookback in config.yaml")
-        print(f"   - Check the debug output above")
+        print("⚠️  No articles found")
         return
     
-    # Show top
-    print(f"\n🏆 TOP {top_n} Articles by relevance:")
+    print(f"🏆 TOP {top_n}:")
     for i, a in enumerate(articles[:top_n], 1):
-        print(f"   [{i}] Score {a['score']}/5 | {a['date'].strftime('%Y-%m-%d')} | {a['title'][:60]}...")
+        print(f"  [{i}] {a['score']}/5 | {a['date'].strftime('%Y-%m-%d')} | {a['title'][:70]}...")
     
-    # Get existing
     existing = get_existing_titles()
+    print(f"\n📋 {len(existing)} already in Notion")
     
-    # Add new
-    print(f"\n✨ Step 4: Adding new articles to Notion...")
-    print(f"   Will add up to {max_articles} articles")
+    print(f"\n✨ Adding new articles...\n")
     added = 0
-    skipped = 0
     
     for i, article in enumerate(articles[:max_articles], 1):
         is_top = i <= top_n
-        marker = "🏆" if is_top else "📚"
         
         if article['title'] not in existing:
-            print(f"   [{i}/{max_articles}] {marker} Adding: {article['title'][:60]}...")
+            marker = "🏆" if is_top else "📚"
+            print(f"  {marker} {article['title'][:65]}...")
             if add_to_notion(article, is_top):
                 added += 1
-        else:
-            print(f"   [{i}/{max_articles}] ⏭️  Skipping (exists): {article['title'][:60]}...")
-            skipped += 1
     
-    print(f"\n   Added: {added} new articles")
-    print(f"   Skipped: {skipped} existing articles")
-    
-    # Cleanup
+    print(f"\n🎉 Added {added} new articles")
     cleanup(max_articles)
-    
-    print("\n" + "=" * 70)
-    print("✅ SYNC COMPLETE!")
-    print("=" * 70 + "\n")
+    print("\n✅ Done!\n")
 
 if __name__ == "__main__":
     main()
