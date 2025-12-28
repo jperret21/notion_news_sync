@@ -43,4 +43,4 @@ jobs:
           EOF
       
       - name: Run Notion RSS Sync
-        run: python notion_news_sync/notion_news.py
+        run: python notion_news.py
