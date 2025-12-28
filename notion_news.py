@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import re
 import time 
+from datetime import datetime, timedelta, timezone  # Ajoutez timezone
 
 # =====================
 # Configuration
@@ -63,7 +64,8 @@ def debug_fetch_arxiv(category: str, max_results: int = 10):
         entries = root.findall('atom:entry', ns)
         print(f"Found {len(entries)} entries\n")
         
-        cutoff_date = datetime.now() - timedelta(days=7)
+        #cutoff_date = datetime.now() - timedelta(days=7)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
         
         for i, entry in enumerate(entries, 1):
             title_elem = entry.find('atom:title', ns)
@@ -165,8 +167,8 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 50) -> List[D
     all_entries = []
     
     # Cutoff date: 7 days ago
-    cutoff_date = datetime.now() - timedelta(days=7)
-    
+    #cutoff_date = datetime.now() - timedelta(days=7)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
     # Headers with User-Agent
     headers = {
         'User-Agent': 'ArXiv-Research-Dashboard/1.0'
