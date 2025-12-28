@@ -1,2 +1,2 @@
-notion-client
-feedparser
+notion-client==2.2.1
+feedparser==6.0.11
