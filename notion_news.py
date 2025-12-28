@@ -9,31 +9,33 @@ from datetime import datetime
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DATABASE_ID = os.environ["DATABASE_ID"]
 
-RSS_URL = os.getenv(
-    "RSS_URL",
-    "http://export.arxiv.org/rss/astro-ph.CO"
-)
+RSS_URL = os.getenv("RSS_URL", "http://export.arxiv.org/rss/astro-ph.CO")
 K = int(os.getenv("K", 5))
 SOURCE = os.getenv("SOURCE", "arXiv astro-ph.CO")
 
 notion = Client(auth=NOTION_TOKEN)
 
 # =====================
-# Utility Functions
+# Functions
 # =====================
 def fetch_existing_titles():
-    """Fetch existing titles from the Notion database."""
-    response = notion.databases.query(database_id=DATABASE_ID)
+    """Fetch existing titles from the Notion database (v2.x)."""
+    try:
+        response = notion.databases.query(database_id=DATABASE_ID)
+    except Exception as e:
+        print("Error querying database:", e)
+        return set()
+
     results = response.get("results", [])
     titles = set()
     for r in results:
-        title_prop = r["properties"]["Title"]["title"]
+        title_prop = r["properties"].get("Title", {}).get("title", [])
         if title_prop:
             titles.add(title_prop[0]["text"]["content"])
     return titles
 
 def add_entry(entry):
-    """Add a new article entry to the Notion database."""
+    """Add a new article to the Notion database."""
     notion.pages.create(
         parent={"database_id": DATABASE_ID},
         properties={
@@ -45,20 +47,22 @@ def add_entry(entry):
     )
 
 def trim_database():
-    """Archive the oldest entries if the database exceeds K articles."""
-    response = notion.databases.query(
-        database_id=DATABASE_ID,
-        sorts=[{"property": "Date", "direction": "ascending"}],
-    )
+    """Archive oldest entries if more than K."""
+    try:
+        response = notion.databases.query(
+            database_id=DATABASE_ID,
+            sorts=[{"property": "Date", "direction": "ascending"}],
+        )
+    except Exception as e:
+        print("Error querying database for trim:", e)
+        return
+
     pages = response.get("results", [])
 
     while len(pages) > K:
         notion.pages.update(page_id=pages[0]["id"], archived=True)
         pages.pop(0)
 
-# =====================
-# Main
-# =====================
 def main():
     feed = feedparser.parse(RSS_URL)
     existing = fetch_existing_titles()
@@ -69,8 +73,5 @@ def main():
 
     trim_database()
 
-# =====================
-# Run
-# =====================
 if __name__ == "__main__":
     main()
