@@ -19,17 +19,21 @@ notion = Client(auth=NOTION_TOKEN)
 # Functions
 # =====================
 def test_database_connection():
-    """Test if we can access the Notion database."""
+    """Check if we can access the Notion database and print YES or NO."""
     try:
         db = notion.databases.retrieve(database_id=DATABASE_ID)
-        print(f"✅ Database connection successful. Database name: {db.get('title', [{'text': {'content': 'Unknown'}}])[0]['text']['content']}")
+        print("✅ YES - Connected to database:", db["id"])
+        # Also print number of pages currently in the database
+        response = notion.databases.query(database_id=DATABASE_ID, page_size=1)
+        count = len(response.get("results", []))
+        print(f"Database currently has {count} pages (showing sample)")
         return True
     except Exception as e:
-        print(f"❌ Failed to connect to database: {e}")
+        print("❌ NO - Cannot connect to database:", e)
         return False
 
 def fetch_existing_titles():
-    """Fetch existing titles from the Notion database (v2.x)."""
+    """Fetch existing titles from the Notion database (v2.x compatible)."""
     try:
         response = notion.databases.query(database_id=DATABASE_ID)
     except Exception as e:
@@ -62,6 +66,7 @@ def trim_database():
         response = notion.databases.query(
             database_id=DATABASE_ID,
             sorts=[{"property": "Date", "direction": "ascending"}],
+            page_size=100
         )
     except Exception as e:
         print("Error querying database for trim:", e)
@@ -74,8 +79,9 @@ def trim_database():
         pages.pop(0)
 
 def main():
-    if not test_database_connection():
-        print("Cannot proceed because database connection failed.")
+    connected = test_database_connection()
+    if not connected:
+        print("Stopping execution because database connection failed.")
         return
 
     feed = feedparser.parse(RSS_URL)
