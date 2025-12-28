@@ -387,7 +387,6 @@ def main():
 
     #debug
     debug_fetch_arxiv('gr-qc', max_results=10)
-    return 
     # Fetch articles
     articles = fetch_arxiv_articles(categories, max_results=50)
     
