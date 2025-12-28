@@ -199,8 +199,6 @@ def add_to_notion(article: Dict, is_top: bool = False):
                 "Date": {"date": {"start": article['date'].isoformat()}},
                 "Category": {"rich_text": [{"text": {"content": article['category']}}]},
                 "Authors": {"rich_text": [{"text": {"content": article['authors']}}]},
-                "Relevance": {"select": {"name": stars}},
-                "Priority": {"select": {"name": priority}},
                 "Keywords": {"rich_text": [{"text": {"content": ', '.join(article['keywords'][:5])}}]},
             },
             children=[
