@@ -1,34 +1,37 @@
-# Vos centres d'intérêt scientifiques
 keywords:
-  high_priority:  # 🔥 5 étoiles
-    - "gravitational waves"
-    - "black hole merger"
+  high_priority:
+    - "gravitational wave"
+    - "black hole"
     - "LIGO"
-    - "LISA"
     - "neutron star"
-    - "waveform"
+    - "gravitational lensing"
+    - "merger"
   
-  medium_priority:  # ⭐ 3 étoiles
+  medium_priority:
     - "cosmology"
     - "dark matter"
     - "dark energy"
-    - "CMB"
-    - "primordial"
+    - "relativity"
+    - "spacetime"
+    - "gravity"
+    - "Einstein"
+    - "metric"
+    - "curvature"
+    - "singularity"
+    - "horizon"
+    - "wormhole"
   
-  low_priority:  # ⭐ 1 étoile
-    - "numerical relativity"
-    - "post-Newtonian"
-    - "waveform"
-    - "gravitational lensing"
+  low_priority:
+    - "numerical"
+    - "quantum"
+    - "field theory"
+    - "GR"
+    - "cosmological"
 
-# Catégories ArXiv à surveiller
 arxiv_categories:
-  - gr-qc          # General Relativity
-  - astro-ph.CO    # Cosmology
-  - astro-ph.HE    # High Energy Astrophysics
+  - gr-qc
+  - astro-ph.CO
+  - astro-ph.HE
 
-# Nombre d'articles à garder
 max_articles: 20
-
-# Seuil minimum de pertinence (1-5 étoiles)
-min_relevance: 2
+min_relevance: 1  # Accept everything with at least 1 keyword match
