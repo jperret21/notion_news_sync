@@ -11,13 +11,16 @@ import time
 # =====================
 # Configuration
 # =====================
+print("Loading config...")
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 DATABASE_ID = os.environ["DATABASE_ID"]
 
 try:
     with open('config.yaml', 'r') as f:
         config = yaml.safe_load(f)
+    print("✅ Config loaded")
 except:
+    print("⚠️ Using default config")
     config = {
         'keywords': {
             'high_priority': ['gravitational', 'black hole', 'neutron star'],
@@ -59,15 +62,20 @@ def calculate_relevance(title: str, abstract: str) -> tuple:
 
 def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
     """Fetch ArXiv articles."""
-    print(f"\n📡 Fetching articles (last {days} days)...\n")
+    print(f"\n📡 Fetching articles (last {days} days)...")
     
     articles = []
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=days)
+    
+    print(f"Current time: {now}")
+    print(f"Cutoff: {cutoff}")
+    print()
+    
     headers = {'User-Agent': 'ArXiv-Dashboard/1.0'}
     
     for cat in categories:
-        print(f"   {cat}...", end=" ")
+        print(f"Category: {cat}")
         
         try:
             response = requests.get(
@@ -76,67 +84,98 @@ def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
                     "search_query": f"cat:{cat}",
                     "sortBy": "submittedDate",
                     "sortOrder": "descending",
-                    "max_results": 50
+                    "max_results": 10  # Reduced for debugging
                 },
                 headers=headers,
                 timeout=30
             )
             
+            print(f"  HTTP status: {response.status_code}")
+            
             root = ET.fromstring(response.content)
             
-            # ⭐ FIX: Use default namespace (no prefix)
-            # ArXiv uses Atom which is the default namespace
+            # Try different namespace approaches
+            print(f"  Trying to find entries...")
+            
+            # Method 1: With default namespace
             ns = {'': 'http://www.w3.org/2005/Atom'}
-            
-            # ⭐ Find entries WITHOUT namespace prefix
             entries = root.findall('entry', ns)
+            print(f"  Method 1 (default ns): {len(entries)} entries")
             
-            # If that doesn't work, try with explicit namespace
+            # Method 2: With explicit namespace
             if not entries:
-                ns_explicit = {'atom': 'http://www.w3.org/2005/Atom'}
-                entries = root.findall('atom:entry', ns_explicit)
+                entries = root.findall('{http://www.w3.org/2005/Atom}entry')
+                print(f"  Method 2 (explicit ns): {len(entries)} entries")
             
-            # If still nothing, try without any namespace
+            # Method 3: Without namespace
             if not entries:
-                entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+                entries = root.findall('.//entry')
+                print(f"  Method 3 (no ns): {len(entries)} entries")
             
-            print(f"{len(entries)} entries", end=" ")
+            print(f"  Total entries found: {len(entries)}")
             
             count = 0
-            for entry in entries:
-                # ⭐ Try multiple ways to find elements
-                title = (entry.find('title', ns) or 
-                        entry.find('{http://www.w3.org/2005/Atom}title') or
-                        entry.find('atom:title', {'atom': 'http://www.w3.org/2005/Atom'}))
+            for idx, entry in enumerate(entries, 1):
+                print(f"\n  Entry #{idx}:")
                 
-                link = (entry.find('id', ns) or 
-                       entry.find('{http://www.w3.org/2005/Atom}id'))
+                # Try to find title multiple ways
+                title = None
+                for method in [
+                    ('find with ns', lambda: entry.find('title', ns)),
+                    ('find explicit', lambda: entry.find('{http://www.w3.org/2005/Atom}title')),
+                    ('find no ns', lambda: entry.find('title'))
+                ]:
+                    name, func = method
+                    try:
+                        title = func()
+                        if title is not None:
+                            print(f"    Title found using: {name}")
+                            print(f"    Title text: {title.text[:50] if title.text else 'None'}...")
+                            break
+                    except:
+                        pass
                 
-                date = (entry.find('published', ns) or 
-                       entry.find('{http://www.w3.org/2005/Atom}published'))
+                # Same for other fields
+                link = entry.find('id', ns) or entry.find('{http://www.w3.org/2005/Atom}id')
+                date = entry.find('published', ns) or entry.find('{http://www.w3.org/2005/Atom}published')
+                abstract = entry.find('summary', ns) or entry.find('{http://www.w3.org/2005/Atom}summary')
                 
-                abstract = (entry.find('summary', ns) or 
-                           entry.find('{http://www.w3.org/2005/Atom}summary'))
-                
-                authors = (entry.findall('author/name', ns) or 
-                          entry.findall('{http://www.w3.org/2005/Atom}author/{http://www.w3.org/2005/Atom}name'))
+                print(f"    Link: {'✅' if link is not None else '❌'}")
+                print(f"    Date: {'✅' if date is not None else '❌'}")
+                print(f"    Abstract: {'✅' if abstract is not None else '❌'}")
                 
                 if not all([title, link, date, abstract]):
+                    print(f"    ❌ Skipping: missing elements")
+                    if idx == 1:
+                        # For first entry, show what we got
+                        print(f"    DEBUG - Raw entry XML (first 500 chars):")
+                        print(f"    {ET.tostring(entry, encoding='unicode')[:500]}")
                     continue
                 
+                # Parse date
                 pub_date = datetime.fromisoformat(date.text.replace('Z', '+00:00'))
+                days_old = (now - pub_date).days
+                
+                print(f"    Published: {pub_date}")
+                print(f"    Days old: {days_old}")
+                print(f"    Pass cutoff: {pub_date >= cutoff}")
                 
                 if pub_date < cutoff:
+                    print(f"    ❌ Filtered: too old")
                     continue
+                
+                print(f"    ✅ In date range!")
                 
                 title_text = ' '.join(title.text.split())
                 abstract_text = ' '.join(abstract.text.split())
                 
                 score, keywords = calculate_relevance(title_text, abstract_text)
+                print(f"    Score: {score}/5 | Keywords: {keywords}")
                 
                 arxiv_id = re.search(r'(\d{4}\.\d{4,5})', link.text)
                 pdf = f"https://arxiv.org/pdf/{arxiv_id.group(1)}.pdf" if arxiv_id else link.text
                 
+                authors = entry.findall('author/name', ns) or entry.findall('{http://www.w3.org/2005/Atom}author/{http://www.w3.org/2005/Atom}name')
                 authors_str = ', '.join([a.text for a in authors[:3]])
                 if len(authors) > 3:
                     authors_str += " et al."
@@ -153,12 +192,16 @@ def fetch_arxiv(categories: List[str], days: int) -> List[Dict]:
                     'keywords': keywords
                 })
                 count += 1
+                print(f"    ✅ ADDED to results")
             
-            print(f"→ {count} in range")
+            print(f"\n  Summary: {count} articles in date range")
             
         except Exception as e:
-            print(f"ERROR: {e}")
+            print(f"  ❌ ERROR: {e}")
+            import traceback
+            traceback.print_exc()
         
+        print()
         time.sleep(3)
     
     articles.sort(key=lambda x: (x['score'], x['date']), reverse=True)
