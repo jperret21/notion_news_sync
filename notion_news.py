@@ -102,21 +102,17 @@ def test_database_connection():
         print("❌ Cannot connect to database:", e)
         return False
 
-def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[Dict]:
+def fetch_arxiv_articles(categories: List[str], max_results: int = 50) -> List[Dict]:
     """
-    Récupère les articles ArXiv pour plusieurs catégories.
-    
-    Args:
-        categories: Liste des catégories ArXiv (ex: ['gr-qc', 'astro-ph.CO'])
-        max_results: Nombre maximum d'articles par catégorie
-    
-    Returns:
-        Liste d'articles enrichis avec métadonnées
+    Récupère les articles ArXiv des 7 derniers jours.
     """
     all_entries = []
     
+    # Date limite : 7 jours en arrière
+    cutoff_date = datetime.now() - timedelta(days=7)
+    
     for category in categories:
-        print(f"📡 Querying ArXiv for: {category}")
+        print(f"📡 Querying ArXiv for: {category} (last 7 days)")
         
         base_url = "http://export.arxiv.org/api/query"
         params = {
@@ -137,7 +133,6 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[D
             }
             
             for entry in root.findall('atom:entry', ns):
-                # Extraire les informations
                 title_elem = entry.find('atom:title', ns)
                 link_elem = entry.find('atom:id', ns)
                 published_elem = entry.find('atom:published', ns)
@@ -157,6 +152,10 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[D
                     published_elem.text.replace('Z', '+00:00')
                 )
                 
+                # ⭐ Filtrer par date (7 derniers jours)
+                if published_date < cutoff_date:
+                    continue
+                
                 # Extraire les auteurs (max 5)
                 author_list = [a.text for a in authors[:5]]
                 authors_str = ', '.join(author_list)
@@ -175,7 +174,7 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[D
                     'link': link,
                     'pdf_url': get_pdf_url(link),
                     'published': published_date,
-                    'abstract': abstract[:2000],  # Limité à 2000 caractères
+                    'abstract': abstract[:2000],
                     'authors': authors_str,
                     'category': category,
                     'relevance': relevance_score,
@@ -183,7 +182,7 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[D
                     'keywords': ', '.join(keywords[:5]) if keywords else ""
                 })
             
-            print(f"  ✅ Found {len([e for e in all_entries if e['category'] == category])} relevant articles")
+            print(f"  ✅ Found {len([e for e in all_entries if e['category'] == category])} relevant articles in last 7 days")
             
         except Exception as e:
             print(f"  ❌ Error fetching {category}: {e}")
@@ -191,7 +190,7 @@ def fetch_arxiv_articles(categories: List[str], max_results: int = 20) -> List[D
     # Trier par pertinence puis par date
     all_entries.sort(key=lambda x: (x['relevance'], x['published']), reverse=True)
     
-    print(f"\n📊 Total: {len(all_entries)} relevant articles across all categories")
+    print(f"\n📊 Total: {len(all_entries)} relevant articles")
     return all_entries
 
 def fetch_existing_titles() -> set:
