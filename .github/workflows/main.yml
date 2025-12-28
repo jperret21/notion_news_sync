@@ -2,24 +2,44 @@ name: Update Notion News
 
 on:
   schedule:
-    - cron: "0 * * * *"   # toutes les heures
-  workflow_dispatch:
+    - cron: '0 * * * *'  # Runs every hour
+  workflow_dispatch:      # Allows manual trigger
 
 jobs:
-  update:
+  notion_sync:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+    env:
+      RSS_URL: "http://export.arxiv.org/rss/astro-ph.CO"
+      K: "5"
+      SOURCE: "arXiv astro-ph.CO"
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      DATABASE_ID: ${{ secrets.DATABASE_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.11"
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install feedparser
+          pip install notion-client==1.0.0  # v1.x compatible with your current script
 
-      - run: python notion_news.py
-        env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          DATABASE_ID: ${{ secrets.DATABASE_ID }}
-          RSS_URL: "http://export.arxiv.org/rss/astro-ph.CO"
-          K: "5"
+      - name: Check Notion secrets
+        run: |
+          echo "DATABASE_ID length: ${DATABASE_ID}"
+          if [ -z "${NOTION_TOKEN}" ]; then
+            echo "ERROR: NOTION_TOKEN is empty!"
+            exit 1
+          else
+            echo "NOTION_TOKEN is set."
+          fi
+
+      - name: Run Notion RSS Sync
+        run: python notion_news_sync/notion_news.py
