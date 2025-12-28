@@ -4,8 +4,9 @@ keywords:
     - "gravitational waves"
     - "black hole merger"
     - "LIGO"
+    - "LISA"
     - "neutron star"
-    - "gravitational lensing"
+    - "waveform"
   
   medium_priority:  # ⭐ 3 étoiles
     - "cosmology"
@@ -18,6 +19,7 @@ keywords:
     - "numerical relativity"
     - "post-Newtonian"
     - "waveform"
+    - "gravitational lensing"
 
 # Catégories ArXiv à surveiller
 arxiv_categories:
@@ -26,7 +28,7 @@ arxiv_categories:
   - astro-ph.HE    # High Energy Astrophysics
 
 # Nombre d'articles à garder
-max_articles: 10
+max_articles: 20
 
 # Seuil minimum de pertinence (1-5 étoiles)
 min_relevance: 2
