@@ -1,4 +1,5 @@
 name: Update Notion News
+
 on:
   schedule:
     - cron: '0 * * * *'  # Every hour
@@ -8,9 +9,9 @@ jobs:
   notion_sync:
     runs-on: ubuntu-latest
     env:
-      RSS_URL: "http://export.arxiv.org/rss/astro-ph.CO"
+      ARXIV_CATEGORY: "gr-qc"
       K: "5"
-      SOURCE: "arXiv astro-ph.CO"
+      SOURCE: "arXiv gr-qc"
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       DATABASE_ID: ${{ secrets.DATABASE_ID }}
     
